@@ -11,6 +11,8 @@ const el = (id) => document.getElementById(id);
 const isHostedPreview = location.hostname.endsWith('.chatgpt.site');
 if (isHostedPreview) {
   document.querySelector('.topbar').insertAdjacentHTML('afterend', '<aside class="preview-notice">Client preview — registration data is not collected on this temporary link.</aside>');
+  el('adminLink').hidden = true;
+  el('footerAdmin').hidden = true;
 }
 const questionHost = el('questions');
 function renderQuestions() { questionHost.innerHTML = questions.map(([title, copy], index) => `<article class="question"><div class="q-number">${index + 1}</div><h3>${title}</h3><p>${copy}</p><div class="choices"><label class="choice"><input type="radio" name="answer-${index}" value="yes" ${answers[index] === true ? 'checked' : ''}> Yes</label><label class="choice"><input type="radio" name="answer-${index}" value="no" ${answers[index] === false ? 'checked' : ''}> No</label></div></article>`).join(''); }

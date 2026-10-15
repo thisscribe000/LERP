@@ -1,20 +1,141 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex"><title>LERP Organiser Dashboard</title>
-  <link rel="icon" type="image/png" href="/assets/loveworld-favicon.png"><link rel="stylesheet" href="/admin.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>LERP Organiser Dashboard</title>
+  <link rel="icon" type="image/png" href="/assets/loveworld-favicon.png">
+  <link rel="stylesheet" href="/admin.css">
 </head>
 <body class="admin-page">
-  <main id="loginScreen" class="login-screen"><a href="/" class="login-brand"><img src="/assets/loveworld-logo.png" alt="LoveWorld"><span>LERP<br><small>Organiser portal</small></span></a><section class="login-card"><p class="eyebrow">SECURE ORGANISER ACCESS</p><h1>Welcome back.</h1><p>Sign in to review registrations and export participant information.</p><form id="loginForm"><label>Dashboard password<input type="password" name="password" required autocomplete="current-password" autofocus></label><p id="loginError" class="form-error" role="alert"></p><button class="admin-primary" type="submit">Open dashboard <span>→</span></button></form><a href="/" class="back-link">← Back to registration page</a></section></main>
-  <div id="dashboard" class="dashboard-shell" hidden>
-    <aside class="sidebar"><a href="/" class="sidebar-brand"><img src="/assets/loveworld-logo.png" alt="LoveWorld"><span><b>LERP</b><small>Export readiness</small></span></a><nav><a class="active" href="#overview">▦ <span>Overview</span></a><a href="#registrations">☷ <span>Registrations</span></a><a id="csvLink" href="/api/admin/export.csv">⇩ <span>Export CSV</span></a></nav><div class="sidebar-foot"><span class="live-dot"></span> Secure organiser session<br><button id="logout" class="logout">Sign out</button></div></aside>
-    <section class="dashboard-main" id="overview"><header class="dashboard-top"><div><p class="eyebrow">LOVEWORLD EXPORT READINESS PROGRAM</p><h1>Good morning, organiser.</h1><p>Here is your registration activity at a glance.</p></div><a class="view-site" href="/" target="_blank">View registration site ↗</a></header>
-      <div class="metric-grid" id="stats" aria-live="polite"></div>
-      <section class="insights"><article class="readiness-card"><div><p class="eyebrow">READINESS SNAPSHOT</p><h2>Participant readiness</h2></div><div id="readinessBars" class="readiness-bars"></div></article><article class="action-card"><span>✦</span><h2>Keep the momentum.</h2><p>Export the latest list whenever your team is ready to follow up with participants.</p><a class="admin-primary small" href="/api/admin/export.csv">Download CSV</a></article></section>
-      <section class="registrations-panel" id="registrations"><div class="panel-head"><div><p class="eyebrow">PARTICIPANT DIRECTORY</p><h2>Registrations</h2></div><a class="admin-primary small" href="/api/admin/export.csv">Export all entries</a></div><div class="filters"><input id="search" type="search" placeholder="Search name, email, church, location…"><select id="readinessFilter"><option value="">All readiness results</option><option>Not Export Ready</option><option>Almost Export Ready</option><option>Export Ready</option><option>Not assessed</option></select></div><div class="table-wrap"><table><thead><tr><th>Participant</th><th>Location</th><th>Church / Zone</th><th>Business</th><th>Readiness</th><th>Registered</th></tr></thead><tbody id="registrationRows"></tbody></table></div></section>
+
+  <!-- ── LOGIN SCREEN ── -->
+  <main id="loginScreen" class="login-screen">
+    <a href="/" class="login-brand">
+      <img src="/assets/loveworld-logo.png" alt="LoveWorld">
+      <span>LERP<br><small>Organiser portal</small></span>
+    </a>
+    <section class="login-card">
+      <p class="eyebrow">SECURE ORGANISER ACCESS</p>
+      <h1>Welcome back.</h1>
+      <p>Sign in to review registrations and export participant information.</p>
+      <form id="loginForm">
+        <label>Dashboard password
+          <input type="password" name="password" required autocomplete="current-password" autofocus>
+        </label>
+        <p id="loginError" class="form-error" role="alert"></p>
+        <button class="admin-primary" type="submit">Open dashboard <span>→</span></button>
+      </form>
+      <a href="/" class="back-link">← Back to registration page</a>
     </section>
-  </div>
+  </main>
+
+  <!-- ── DASHBOARD SHELL ── -->
+  <div id="dashboard" class="dashboard-shell" hidden>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <a href="/" class="sidebar-brand">
+        <img src="/assets/loveworld-logo.png" alt="LoveWorld">
+        <span><b>LERP</b><small>Export readiness</small></span>
+      </a>
+      <nav>
+        <a class="nav-link active" data-tab="overview" href="#overview">
+          <span class="nav-icon">▦</span>
+          <span class="nav-label">Overview</span>
+        </a>
+        <a class="nav-link" data-tab="registrations" href="#registrations">
+          <span class="nav-icon">☷</span>
+          <span class="nav-label">Registrations</span>
+        </a>
+        <a id="csvLink" class="nav-link export-link" href="/api/admin/export.csv">
+          <span class="nav-icon">⇩</span>
+          <span class="nav-label">Export CSV</span>
+        </a>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="live-dot"></span> Secure organiser session<br>
+        <button id="logout" class="logout">Sign out</button>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <div class="dashboard-main">
+
+      <!-- TAB PANEL: OVERVIEW -->
+      <section class="tab-panel" id="tab-overview">
+        <header class="dashboard-top">
+          <div>
+            <p class="eyebrow">LOVEWORLD EXPORT READINESS PROGRAM</p>
+            <h1 id="greetingText">Good morning, organiser.</h1>
+            <p class="top-subtitle">Here is your registration activity at a glance.</p>
+          </div>
+          <a class="view-site" href="/" target="_blank">View registration site ↗</a>
+        </header>
+
+        <div class="metric-grid" id="stats" aria-live="polite"></div>
+
+        <div class="insights">
+          <article class="readiness-card">
+            <div>
+              <p class="eyebrow">READINESS SNAPSHOT</p>
+              <h2>Participant readiness</h2>
+            </div>
+            <div id="readinessBars" class="readiness-bars"></div>
+          </article>
+          <article class="action-card">
+            <span>✦</span>
+            <h2>Keep the momentum.</h2>
+            <p>Export the latest list whenever your team is ready to follow up with participants.</p>
+            <a class="admin-primary small" href="/api/admin/export.csv">Download CSV</a>
+          </article>
+        </div>
+      </section>
+
+      <!-- TAB PANEL: REGISTRATIONS -->
+      <section class="tab-panel" id="tab-registrations" hidden>
+        <header class="dashboard-top">
+          <div>
+            <p class="eyebrow">PARTICIPANT DIRECTORY</p>
+            <h1>Registrations</h1>
+            <p class="top-subtitle">Browse, search, and filter all participant entries.</p>
+          </div>
+          <a class="admin-primary small export-btn" href="/api/admin/export.csv">Export all entries</a>
+        </header>
+
+        <div class="registrations-panel">
+          <div class="filters">
+            <input id="search" type="search" placeholder="Search name, email, church, location…">
+            <select id="readinessFilter">
+              <option value="">All readiness results</option>
+              <option>Not Export Ready</option>
+              <option>Almost Export Ready</option>
+              <option>Export Ready</option>
+              <option>Not assessed</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Participant</th>
+                  <th>Location</th>
+                  <th>Church / Zone</th>
+                  <th>Business</th>
+                  <th>Readiness</th>
+                  <th>Registered</th>
+                </tr>
+              </thead>
+              <tbody id="registrationRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /.dashboard-main -->
+  </div><!-- /#dashboard -->
+
   <script src="/admin.js" defer></script>
 </body>
 </html>

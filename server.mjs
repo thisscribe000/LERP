@@ -8,7 +8,6 @@ if (process.loadEnvFile) {
 }
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
 import { createReadStream, existsSync, mkdirSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -19,31 +18,39 @@ import { createClient } from '@supabase/supabase-js';
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(root, 'public');
 const dataDir = join(root, 'data');
-mkdirSync(dataDir, { recursive: true });
 
-// Local SQLite backup / fallback database
-const db = new DatabaseSync(join(dataDir, 'lerp.db'));
-db.exec(`
-  CREATE TABLE IF NOT EXISTS registrations (
-    id INTEGER PRIMARY KEY,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    full_name TEXT NOT NULL,
-    kingschat_id TEXT NOT NULL,
-    phone_number TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    country TEXT NOT NULL,
-    state_province TEXT NOT NULL,
-    city TEXT NOT NULL,
-    church_ministry_centre TEXT NOT NULL,
-    zone_group_church TEXT NOT NULL,
-    business_name TEXT,
-    industry_category TEXT NOT NULL,
-    products_services TEXT NOT NULL,
-    assessment_answers TEXT NOT NULL,
-    assessment_score INTEGER,
-    assessment_result TEXT
-  );
-`);
+// Local SQLite backup / fallback database (only initialized in non-serverless environments)
+let db = null;
+if (!process.env.VERCEL) {
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    mkdirSync(dataDir, { recursive: true });
+    db = new DatabaseSync(join(dataDir, 'lerp.db'));
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS registrations (
+        id INTEGER PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        full_name TEXT NOT NULL,
+        kingschat_id TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        country TEXT NOT NULL,
+        state_province TEXT NOT NULL,
+        city TEXT NOT NULL,
+        church_ministry_centre TEXT NOT NULL,
+        zone_group_church TEXT NOT NULL,
+        business_name TEXT,
+        industry_category TEXT NOT NULL,
+        products_services TEXT NOT NULL,
+        assessment_answers TEXT NOT NULL,
+        assessment_score INTEGER,
+        assessment_result TEXT
+      );
+    `);
+  } catch (err) {
+    console.warn('Local SQLite not initialized:', err.message);
+  }
+}
 
 // Supabase cloud database client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -101,6 +108,10 @@ function isAdmin(req) {
 }
 
 async function body(req) {
+  if (req.body && typeof req.body === 'object') return req.body;
+  if (typeof req.body === 'string') {
+    try { return JSON.parse(req.body); } catch { throw new Error('Invalid request body'); }
+  }
   const chunks = [];
   let length = 0;
   for await (const chunk of req) {
@@ -148,8 +159,9 @@ function csvEscape(value) {
   return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+export default async function handler(req, res) {
+  const rawUrl = req.headers['x-matched-path'] || req.headers['x-forwarded-uri'] || req.url;
+  const url = new URL(rawUrl, `http://${req.headers.host || 'localhost'}`);
   try {
     if (req.method === 'POST' && url.pathname === '/api/register') {
       const check = validate(await body(req));
@@ -183,28 +195,32 @@ const server = createServer(async (req, res) => {
           console.error('Supabase registration insert error:', sbError);
           return json(res, 500, { error: `Database error: ${sbError.message || 'Could not save registration.'}` });
         }
+      } else if (!db) {
+        return json(res, 500, { error: 'No database is configured. Please check environment variables.' });
       }
 
-      // Always save a local copy in SQLite backup table
-      try {
-        db.prepare(`
-          INSERT INTO registrations (
-            full_name,kingschat_id,phone_number,email,country,state_province,city,
-            church_ministry_centre,zone_group_church,business_name,industry_category,
-            products_services,assessment_answers,assessment_score,assessment_result
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        `).run(
-          v.fullName, v.kingschatId, v.phoneNumber, v.email.toLowerCase(), v.country,
-          v.stateProvince, v.city, v.churchMinistryCentre, v.zoneGroupChurch,
-          v.businessName || null, v.industryCategory, v.productsServices,
-          JSON.stringify(v.answers), v.score, v.result
-        );
-      } catch (error) {
-        if (!supabase) {
-          if (String(error).includes('UNIQUE')) {
-            return json(res, 409, { error: 'This email address has already been registered.' });
+      // Always save a local copy in SQLite backup table if running locally with SQLite
+      if (db) {
+        try {
+          db.prepare(`
+            INSERT INTO registrations (
+              full_name,kingschat_id,phone_number,email,country,state_province,city,
+              church_ministry_centre,zone_group_church,business_name,industry_category,
+              products_services,assessment_answers,assessment_score,assessment_result
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(
+            v.fullName, v.kingschatId, v.phoneNumber, v.email.toLowerCase(), v.country,
+            v.stateProvince, v.city, v.churchMinistryCentre, v.zoneGroupChurch,
+            v.businessName || null, v.industryCategory, v.productsServices,
+            JSON.stringify(v.answers), v.score, v.result
+          );
+        } catch (error) {
+          if (!supabase) {
+            if (String(error).includes('UNIQUE')) {
+              return json(res, 409, { error: 'This email address has already been registered.' });
+            }
+            throw error;
           }
-          throw error;
         }
       }
 
@@ -262,9 +278,13 @@ const server = createServer(async (req, res) => {
           return json(res, 200, { total: total || 0, readiness });
         }
 
-        const total = db.prepare('SELECT COUNT(*) AS value FROM registrations').get().value;
-        const readiness = db.prepare("SELECT COALESCE(assessment_result, 'Not assessed') AS label, COUNT(*) AS value FROM registrations GROUP BY assessment_result").all();
-        return json(res, 200, { total, readiness });
+        if (db) {
+          const total = db.prepare('SELECT COUNT(*) AS value FROM registrations').get().value;
+          const readiness = db.prepare("SELECT COALESCE(assessment_result, 'Not assessed') AS label, COUNT(*) AS value FROM registrations GROUP BY assessment_result").all();
+          return json(res, 200, { total, readiness });
+        }
+
+        return json(res, 500, { error: 'No database available.' });
       }
 
       if (req.method === 'GET' && url.pathname === '/api/admin/registrations') {
@@ -288,27 +308,31 @@ const server = createServer(async (req, res) => {
           return json(res, 200, { rows: rows || [] });
         }
 
-        const where = [];
-        const params = [];
-        if (q) {
-          where.push('(full_name LIKE ? OR email LIKE ? OR country LIKE ? OR church_ministry_centre LIKE ? OR zone_group_church LIKE ?)');
-          params.push(...Array(5).fill(`%${q}%`));
+        if (db) {
+          const where = [];
+          const params = [];
+          if (q) {
+            where.push('(full_name LIKE ? OR email LIKE ? OR country LIKE ? OR church_ministry_centre LIKE ? OR zone_group_church LIKE ?)');
+            params.push(...Array(5).fill(`%${q}%`));
+          }
+          if (readiness) {
+            where.push(readiness === 'Not assessed' ? 'assessment_result IS NULL' : 'assessment_result = ?');
+            if (readiness !== 'Not assessed') params.push(readiness);
+          }
+          const rows = db.prepare(`SELECT * FROM registrations ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC`).all(...params);
+          return json(res, 200, { rows });
         }
-        if (readiness) {
-          where.push(readiness === 'Not assessed' ? 'assessment_result IS NULL' : 'assessment_result = ?');
-          if (readiness !== 'Not assessed') params.push(readiness);
-        }
-        const rows = db.prepare(`SELECT * FROM registrations ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC`).all(...params);
-        return json(res, 200, { rows });
+
+        return json(res, 500, { error: 'No database available.' });
       }
 
       if (req.method === 'GET' && url.pathname === '/api/admin/export.csv') {
-        let rows;
+        let rows = [];
         if (supabase) {
           const { data, error } = await supabase.from('registrations').select('*').order('created_at', { ascending: false });
           if (error) throw error;
           rows = data || [];
-        } else {
+        } else if (db) {
           rows = db.prepare('SELECT * FROM registrations ORDER BY created_at DESC').all();
         }
 
@@ -335,8 +359,9 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/health') {
       return json(res, 200, {
         ok: true,
-        database: supabase ? 'supabase' : 'sqlite',
-        supabaseConfigured: !!supabase
+        database: supabase ? 'supabase' : (db ? 'sqlite' : 'none'),
+        supabaseConfigured: !!supabase,
+        environment: process.env.VERCEL ? 'vercel' : 'node'
       });
     }
 
@@ -344,7 +369,9 @@ const server = createServer(async (req, res) => {
       return json(res, 405, { error: 'Method not allowed.' });
     }
 
-    const requested = url.pathname === '/' ? '/index.html' : url.pathname;
+    const requested = (url.pathname === '/' || url.pathname === '') ? '/index.html'
+      : (url.pathname === '/admin') ? '/admin.html'
+      : url.pathname;
     const filePath = normalize(join(publicDir, requested));
     if (!filePath.startsWith(publicDir) || !existsSync(filePath) || !(await stat(filePath)).isFile()) {
       res.writeHead(404);
@@ -354,12 +381,15 @@ const server = createServer(async (req, res) => {
     if (req.method === 'HEAD') return res.end();
     createReadStream(filePath).pipe(res);
   } catch (error) {
-    console.error(error);
+    console.error('Unhandled server error:', error);
     json(res, 500, { error: 'Something went wrong. Please try again.' });
   }
-});
+}
 
-const port = Number(process.env.PORT || 3000);
-server.listen(port, '127.0.0.1', () => {
-  console.log(`LERP portal running at http://localhost:${port} [Database: ${supabase ? 'Supabase' : 'SQLite'}]`);
-});
+// Standalone local execution
+if (!process.env.VERCEL && process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const port = Number(process.env.PORT || 3000);
+  createServer(handler).listen(port, '127.0.0.1', () => {
+    console.log(`LERP portal running at http://localhost:${port} [Database: ${supabase ? 'Supabase' : (db ? 'SQLite' : 'None')}]`);
+  });
+}

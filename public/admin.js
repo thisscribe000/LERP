@@ -182,7 +182,10 @@ async function loadDashboard() {
             <td>${escapeHtml(row.church_ministry_centre)}<small>${escapeHtml(row.zone_group_church)}</small></td>
             <td>${escapeHtml(row.business_name || '—')}<small>${escapeHtml(row.industry_category)}</small></td>
             <td><span class="status ${tone}">${escapeHtml(row.assessment_result || 'Not assessed')}</span></td>
-            <td>${new Date(`${row.created_at}Z`).toLocaleDateString()}</td>
+            <td>${(() => {
+              const d = row.created_at ? new Date(row.created_at.endsWith('Z') || row.created_at.includes('+') ? row.created_at : `${row.created_at}Z`) : new Date();
+              return isNaN(d) ? escapeHtml(row.created_at) : d.toLocaleDateString();
+            })()}</td>
           </tr>
         `;
       }).join('')
